@@ -1,0 +1,140 @@
+name: PokéRogue GBA Build & Patch
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ROM & Generate xdelta Patch
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # ── DevKitPro 설치 ────────────────────────────────────────
+    - name: Install DevKitPro (GBA toolchain)
+      run: |
+        wget -q https://apt.devkitpro.org/install-devkitpro-pacman \
+             -O /tmp/install-dkp.sh
+        chmod +x /tmp/install-dkp.sh
+        echo "y" | sudo /tmp/install-dkp.sh
+        sudo dkp-pacman -Sy --noconfirm gba-dev
+
+    - name: Set DevKitPro env
+      run: |
+        echo "DEVKITPRO=/opt/devkitpro"          >> $GITHUB_ENV
+        echo "DEVKITARM=/opt/devkitpro/devkitARM" >> $GITHUB_ENV
+        echo "/opt/devkitpro/devkitARM/bin"       >> $GITHUB_PATH
+        echo "/opt/devkitpro/tools/bin"            >> $GITHUB_PATH
+
+    # ── 빌드 도구 ─────────────────────────────────────────────
+    - name: Install build tools
+      run: |
+        sudo apt-get install -y libpng-dev xdelta3 python3 python3-pip
+        pip3 install pillow
+
+    # ── baserom 복원 (Secret) ─────────────────────────────────
+    # 설정법: Settings → Secrets → BASEROM_BASE64
+    #   base64 -w0 baserom.gba > baserom.txt  → 값 붙여넣기
+    - name: Restore baserom.gba
+      env:
+        BASEROM_BASE64: ${{ secrets.BASEROM_BASE64 }}
+      run: |
+        if [ -z "$BASEROM_BASE64" ]; then
+          echo "::warning::BASEROM_BASE64 secret 없음. 검증 건너뜀."
+          dd if=/dev/zero bs=1M count=16 of=baserom.gba 2>/dev/null
+        else
+          echo "$BASEROM_BASE64" | base64 -d > baserom.gba
+        fi
+
+    - name: Verify baserom SHA1
+      run: |
+        EXPECTED="f3ae088181bf583e55daf962a92bb46f4f1d07b7"
+        ACTUAL=$(sha1sum baserom.gba | awk '{print $1}')
+        [ "$ACTUAL" = "$EXPECTED" ] \
+          && echo "✓ baserom SHA1 확인" \
+          || echo "::warning::SHA1 불일치 (에메랄드 영문판 필요)"
+
+    # ── 빌드 ──────────────────────────────────────────────────
+    - name: Build pokeemerald.gba
+      run: make -j$(nproc)
+
+    - name: Confirm ROM exists
+      run: |
+        test -f pokeemerald.gba || { echo "::error::빌드 실패"; exit 1; }
+        echo "ROM size: $(wc -c < pokeemerald.gba) bytes"
+
+    # ── xdelta3 패치 생성 ─────────────────────────────────────
+    - name: Generate xdelta3 patch
+      run: |
+        xdelta3 -e -s baserom.gba pokeemerald.gba pokerogue-gba.xdelta
+        echo "patch size: $(wc -c < pokerogue-gba.xdelta) bytes"
+
+    # ── 패치 검증 ─────────────────────────────────────────────
+    - name: Verify patch
+      run: |
+        xdelta3 -d -s baserom.gba pokerogue-gba.xdelta verify.gba
+        sha1sum pokeemerald.gba verify.gba
+        diff <(sha1sum pokeemerald.gba | awk '{print $1}') \
+             <(sha1sum verify.gba      | awk '{print $1}') \
+          && echo "✓ 패치 검증 성공" \
+          || { echo "::error::패치 검증 실패"; exit 1; }
+        rm verify.gba
+
+    # ── 체크섬 생성 ───────────────────────────────────────────
+    - name: Generate checksums
+      run: |
+        sha1sum pokerogue-gba.xdelta > pokerogue-gba.xdelta.sha1
+        cat pokerogue-gba.xdelta.sha1
+
+    # ── 아티팩트 저장 (항상) ───────────────────────────────────
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: pokerogue-gba-${{ github.sha }}
+        path: |
+          pokerogue-gba.xdelta
+          pokerogue-gba.xdelta.sha1
+        retention-days: 30
+
+    # ── GitHub Release (태그 push 시만) ───────────────────────
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v2
+      with:
+        name: PokéRogue GBA ${{ github.ref_name }}
+        body: |
+          ## PokéRogue GBA ${{ github.ref_name }}
+
+          ### 패치 적용 방법
+
+          **필요한 것**
+          - 포켓몬 에메랄드 영문판 ROM
+            (`SHA1: f3ae088181bf583e55daf962a92bb46f4f1d07b7`)
+          - xdelta3 또는 Delta Patcher (GUI)
+
+          **터미널**
+          ```bash
+          xdelta3 -d -s 에메랄드.gba pokerogue-gba.xdelta 결과.gba
+          ```
+
+          **GUI (Delta Patcher)**
+          1. Original File → 에메랄드 원본 ROM
+          2. XDelta Patch  → `pokerogue-gba.xdelta`
+          3. Apply Patch 클릭
+
+          **실행**
+          mGBA, VBA, 실물 GBA + 플래시카트 모두 지원
+        files: |
+          pokerogue-gba.xdelta
+          pokerogue-gba.xdelta.sha1
+        draft: false
+        prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,3 +1,4 @@
+#include "rogue/rogue_main.h"
 #include "global.h"
 #include "battle.h"
 #include "title_screen.h"
@@ -561,6 +562,11 @@ static void VBlankCB(void)
 
 void CB2_InitTitleScreen(void)
 {
+#if POKEROGUE_GBA
+    // PokéRogue GBA 모드: 기존 타이틀 대신 rogue 시스템으로 직접 진입
+    RogueMain_Init();
+    return;
+#endif
     if (IS_FRLG)
     {
         CB2_InitTitleScreenFrlg();
