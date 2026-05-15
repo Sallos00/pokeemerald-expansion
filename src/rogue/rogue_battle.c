@@ -27,7 +27,6 @@
 static void Battle_SetupWild(void);
 static void Battle_SetupBoss(void);
 static void Battle_SetupElite(void);
-static void Battle_ApplyIvs(struct Pokemon *mon, u8 fixedIv);
 static void Battle_ApplyEvs(struct Pokemon *mon, u8 evAmount);
 
 // ── 배틀 복귀 콜백 (배틀 종료 후 pokeemerald가 호출) ──────────

@@ -8,7 +8,7 @@
 #include "rogue/rogue_hangul.h"
 
 // Python 생성 파일이 없으면 더미 사용
-#if __has_include("data/rogue/hangul_table.generated.h")
+#if __has_include("hangul_table.generated.h")
   #include "data/rogue/hangul_table.generated.h"
   #include "data/rogue/hangul_glyphs.generated.h"
 #else
