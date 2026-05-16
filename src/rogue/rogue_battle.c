@@ -21,16 +21,44 @@
 #include "rogue/rogue_passive.h"
 #include "rogue/rogue_wave.h"
 #include "rogue/rogue_battle.h"
+#include "rogue/rogue_ui.h"
 #include "move.h"
 
 // ── 전방 선언 ─────────────────────────────────────────────────
-static void Battle_SetupWild(void);
-static void Battle_SetupBoss(void);
-static void Battle_SetupElite(void);
-static void Battle_ApplyEvs(struct Pokemon *mon, u8 evAmount);
 
 // ── 배틀 복귀 콜백 (배틀 종료 후 pokeemerald가 호출) ──────────
-static void CB2_RogueBattleReturn(void);
+
+// ============================================================
+//  배틀 종료 복귀 콜백
+//  pokeemerald battle_main.c → SetMainCallback2(gMain.savedCallback)
+//  로 이 함수가 호출됨
+// ============================================================
+static void CB2_RogueBattleReturn(void)
+{
+    // 배틀 결과 처리
+    switch (gBattleOutcome)
+    {
+    case B_OUTCOME_WON:
+        gRogueRun.state     = ROGUE_STATE_VICTORY;
+        gRogueRun.prevState = ROGUE_STATE_COUNT; // Init 강제 트리거
+        break;
+    case B_OUTCOME_LOST:
+        RogueMain_EndRun(FALSE);
+        break;
+    case B_OUTCOME_RAN:
+    case B_OUTCOME_DREW:
+    default:
+        RogueMain_SetState(ROGUE_STATE_NODE_MAP);
+        break;
+    }
+
+    // gBattleOutcome 초기화
+    gBattleOutcome = 0;
+
+    // 메인 콜백을 rogue 루프로 복귀
+    SetVBlankCallback(RogueMain_GetVBlankCb());
+    SetMainCallback2(RogueMain_GetMainCb());
+}
 
 // ============================================================
 //  배틀 초기화 실행 (즉시 실행, 상태머신의 BATTLE_INIT에서 호출)
@@ -73,37 +101,7 @@ void RogueBattleInit_Run(void)
     gRogueRun.prevState = ROGUE_STATE_BATTLE;
 }
 
-// ============================================================
-//  배틀 종료 복귀 콜백
-//  pokeemerald battle_main.c → SetMainCallback2(gMain.savedCallback)
-//  로 이 함수가 호출됨
-// ============================================================
-static void CB2_RogueBattleReturn(void)
-{
-    // 배틀 결과 처리
-    switch (gBattleOutcome)
-    {
-    case B_OUTCOME_WON:
-        gRogueRun.state     = ROGUE_STATE_VICTORY;
-        gRogueRun.prevState = ROGUE_STATE_COUNT; // Init 강제 트리거
-        break;
-    case B_OUTCOME_LOST:
-        RogueMain_EndRun(FALSE);
-        break;
-    case B_OUTCOME_RAN:
-    case B_OUTCOME_DREW:
-    default:
-        RogueMain_SetState(ROGUE_STATE_NODE_MAP);
-        break;
-    }
 
-    // gBattleOutcome 초기화
-    gBattleOutcome = 0;
-
-    // 메인 콜백을 rogue 루프로 복귀
-    SetVBlankCallback(RogueMain_GetVBlankCb());
-    SetMainCallback2(RogueMain_GetMainCb());
-}
 
 // ============================================================
 //  야생 적 파티 생성
